@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Directory Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+    <style>
+        /* Smooth fade */
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.4s; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+    </style>
+</head>
+
+<body class="bg-gradient-to-br from-gray-100 to-gray-200 min-h-screen text-gray-800">
+
+    <div id="app" class="max-w-6xl mx-auto px-4 py-10">
+        
+        <!-- Hero Header -->
+        <div class="text-center mb-10">
+            <h1 class="text-4xl font-extrabold bg-gradient-to-r from-blue-600 to-purple-600 text-transparent bg-clip-text drop-shadow-md">
+                AI-Powered Directory Management System
+            </h1>
+            <p class="text-gray-600 mt-2 text-lg">
+                Analyze, organize & clean your files with AI precision.
+            </p>
+        </div>
+
+        <!-- Input Section -->
+        <div class="max-w-3xl mx-auto mb-12 bg-white/60 backdrop-blur-xl shadow-lg rounded-2xl p-8 border border-gray-200">
+            <div class="flex gap-4">
+                <input 
+                    v-model="directory" 
+                    @keyup.enter="analyzeDirectory"
+                    type="text" 
+                    placeholder="Enter directory path (e.g., /home/user/docs)"
+                    class="flex-1 px-4 py-3 border border-gray-300 rounded-xl bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                <button 
+                    @click="analyzeDirectory"
+                    :disabled="isLoading"
+                    class="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold hover:shadow-lg active:scale-95 transition disabled:opacity-50"
+                >
+                    [[ isLoading ? 'Analyzing...' : 'Analyze' ]]
+                </button>
+            </div>
+
+            <!-- Loading State -->
+            <transition name="fade">
+                <div v-if="isLoading" class="mt-4 text-center text-gray-600">
+                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                    <p class="mt-2 font-medium">Analyzing directory structure...</p>
+                </div>
+            </transition>
+
+            <!-- Error -->
+            <transition name="fade">
+                <div v-if="error" class="mt-4 p-4 bg-red-100 border border-red-300 text-red-700 rounded-xl shadow">
+                    <p class="font-bold">⚠️ Error:</p>
+                    <p>[[ error ]]</p>
+                </div>
+            </transition>
+        </div>
+
+        <!-- Summary Section -->
+        <transition name="fade">
+        <div v-if="!isLoading && !error && totalFiles > 0" class="space-y-10">
+            
+            <div class="bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg border p-6">
+                <h2 class="text-2xl font-bold mb-4 text-gray-800">📊 Summary</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="bg-gradient-to-br from-blue-50 to-blue-100 shadow-inner p-5 rounded-xl">
+                        <p class="text-sm text-gray-600">Total Files</p>
+                        <p class="text-3xl font-extrabold mt-1 text-blue-700">[[ totalFiles ]]</p>
+                    </div>
+                    <div class="bg-gradient-to-br from-purple-50 to-purple-100 shadow-inner p-5 rounded-xl">
+                        <p class="text-sm text-gray-600">Total Size</p>
+                        <p class="text-3xl font-extrabold mt-1 text-purple-700">[[ formatSize(totalSize) ]]</p>
+                    </div>
+                    <div class="bg-gradient-to-br from-green-50 to-green-100 shadow-inner p-5 rounded-xl">
+                        <p class="text-sm text-gray-600">Categories</p>
+                        <p class="text-3xl font-extrabold mt-1 text-green-700">[[ Object.keys(categories).length ]]</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Duplicate Files -->
+            <div class="bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg border p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">🧬 Duplicate Files</h2>
+                    <button 
+                        @click="findDuplicates"
+                        :disabled="isLoadingDuplicates"
+                        class="px-5 py-3 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white font-semibold rounded-xl hover:shadow-lg active:scale-95 transition disabled:opacity-50"
+                    >
+                        [[ isLoadingDuplicates ? 'Scanning...' : 'Scan for Duplicates' ]]
+                    </button>
+                </div>
+
+                <!-- Duplicate Loading -->
+                <transition name="fade">
+                    <div v-if="isLoadingDuplicates" class="text-center text-gray-600">
+                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
+                        <p class="mt-2 font-medium">Finding duplicates...</p>
+                    </div>
+                </transition>
+
+                <!-- Duplicate List -->
+                <div v-if="!isLoadingDuplicates && duplicates.length > 0" class="space-y-6">
+                    <div 
+                        v-for="(duplicate, index) in duplicates" 
+                        :key="index"
+                        class="p-6 rounded-xl border bg-white shadow-sm hover:shadow-lg transition"
+                    >
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            
+                            <div>
+                                <h3 class="font-semibold text-gray-700 mb-2">Original File</h3>
+                                <p class="text-gray-600"><b>Name:</b> [[ duplicate.original.name ]]</p>
+                                <p class="text-gray-600"><b>Size:</b> [[ formatSize(duplicate.original.size) ]]</p>
+                                <p class="text-gray-600"><b>Modified:</b> [[ duplicate.original.modified ]]</p>
+                            </div>
+
+                            <div>
+                                <h3 class="font-semibold text-gray-700 mb-2">Duplicate File</h3>
+                                <p class="text-gray-600"><b>Name:</b> [[ duplicate.duplicate.name ]]</p>
+                                <p class="text-gray-600"><b>Size:</b> [[ formatSize(duplicate.duplicate.size) ]]</p>
+                                <p class="text-gray-600"><b>Modified:</b> [[ duplicate.duplicate.modified ]]</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 text-right">
+                            <button 
+                                @click="deleteDuplicate(duplicate.duplicate.path)"
+                                class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 active:scale-95 transition"
+                            >
+                                Delete Duplicate
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- No Duplicates -->
+                <div v-if="!isLoadingDuplicates && duplicates.length === 0" class="text-center text-gray-600">
+                    <p>No duplicate files found 🎉</p>
+                </div>
+            </div>
+
+            <!-- Category Sections -->
+            <div 
+                v-for="(files, category) in categories" 
+                :key="category" 
+                class="bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg border p-6"
+            >
+                <h2 class="text-2xl font-bold mb-4 text-gray-800">📁 [[ category ]]</h2>
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-300">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-bold text-gray-600">Name</th>
+                                <th class="px-4 py-3 text-left text-xs font-bold text-gray-600">Type</th>
+                                <th class="px-4 py-3 text-left text-xs font-bold text-gray-600">Size</th>
+                                <th class="px-4 py-3 text-left text-xs font-bold text-gray-600">Modified</th>
+                            </tr>
+                        </thead>
+
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <tr 
+                                v-for="file in files" 
+                                :key="file.path" 
+                                @click="openFile(file)"
+                                class="cursor-pointer hover:bg-gray-100 transition"
+                            >
+                                <td class="px-4 py-3">[[ file.name ]]</td>
+                                <td class="px-4 py-3 text-gray-500">[[ file.type ]]</td>
+                                <td class="px-4 py-3 text-gray-500">[[ formatSize(file.size) ]]</td>
+                                <td class="px-4 py-3 text-gray-500">[[ file.modified ]]</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+        </transition>
+
+        <!-- No Files Section -->
+        <transition name="fade">
+            <div 
+                v-if="!isLoading && !error && totalFiles === 0" 
+                class="text-center text-gray-600 mt-10"
+            >
+                <p class="text-lg font-medium">No files found in this directory.</p>
+                <p class="text-sm mt-1">Double-check the path and try again.</p>
+            </div>
+        </transition>
+
+    </div>
+
+<script>
+    const { createApp } = Vue
+
+    createApp({
+        delimiters: ['[[', ']]'],
+        data() {
+            return {
+                directory: '',
+                files: [],
+                categories: {
+                    'Documents': [],
+                    'Images': [],
+                    'Videos': [],
+                    'Audio': [],
+                    'Archives': [],
+                    'Others': []
+                },
+                isLoading: false,
+                isLoadingDuplicates: false,
+                error: null,
+                totalFiles: 0,
+                totalSize: 0,
+                duplicates: []
+            }
+        },
+        methods: {
+            async analyzeDirectory() {
+                if (!this.directory) {
+                    this.error = 'Please enter a directory path'
+                    return
+                }
+
+                this.isLoading = true
+                this.error = null
+                this.files = []
+                this.totalFiles = 0
+                this.totalSize = 0
+
+                try {
+                    const response = await fetch('/api/analyze', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ directory: this.directory })
+                    })
+
+                    const data = await response.json()
+                    if (!response.ok) throw new Error(data.error)
+
+                    this.files = data.files
+                    this.categories = data.categories
+                    this.totalFiles = this.files.length
+                    this.totalSize = this.files.reduce((a, b) => a + b.size, 0)
+                } catch (err) {
+                    this.error = err.message
+                } finally {
+                    this.isLoading = false
+                }
+            },
+            formatSize(bytes) {
+                if (bytes === 0) return '0 Bytes'
+                const k = 1024
+                const sizes = ['Bytes', 'KB', 'MB', 'GB']
+                const i = Math.floor(Math.log(bytes) / Math.log(k))
+                return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i]
+            },
+            openFile(file) {
+                const link = document.createElement('a')
+                link.href = `/api/file/${encodeURIComponent(file.path)}`
+                link.target = "_blank"
+                link.click()
+            }
+        }
+    }).mount('#app')
+</script>
+
+</body>
+</html>
+
